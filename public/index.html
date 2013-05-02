@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <script src="/socket.io/socket.io.js"></script>
+        <script type="text/javascript" src="javascripts/lib/paper.js"></script>
+        <script type="text/javascript">
+            function S4() {
+               return (((1+Math.random())*0x10000)|0).toString(16).substring(1);
+            }
+
+            function guid() {
+               return (S4()+S4()+"-"+S4()+"-"+S4()+"-"+S4()+"-"+S4()+S4()+S4());
+            }
+
+            function randomRgb() {
+                var chars = '0123456789ABCDEF'.split('');
+                var rgb = '#';
+                for (var i = 0; i < 6; i++ ) {
+                    rgb += chars[Math.round(Math.random() * 15)];
+                }
+                return rgb;
+            }
+
+            function clearCanvas() {
+                socket.emit('draw:clean');
+                paper.setup('myCanvas');
+            }
+
+            paper.install(window);
+
+            var tool = new Tool();
+            var strokeColor;
+            var strokeWidth = 10;
+
+            var lines = [];
+
+            var currentGUID;
+            var pathData;
+
+            var socket = io.connect('/');
+
+            window.onload = function() {
+                paper.setup('myCanvas');
+
+                var path;
+                function onMouseDown(event) {
+                    currentGUID = guid();
+                    strokeColor = randomRgb();
+
+                    path = new Path();
+                    path.strokeColor = strokeColor;
+                    path.strokeWidth = strokeWidth;
+                    path.strokeCap = 'round';
+                    path.add(event.point);
+
+                    pathData = { strokeColor: strokeColor,
+                                 strokeWidth: strokeWidth,
+                                 points: [{ x: event.point.x, y: event.point.y}]};
+
+                    socket.emit('draw:start', { id: currentGUID, path: pathData });
+                }
+
+                function onMouseUp(event) {
+                    socket.emit('draw:end', { id: currentGUID, path: pathData });
+                }
+
+                function onMouseDrag(event) {
+                    path.add(event.point);
+                    pathData.points.push({ x: event.point.x, y: event.point.y});
+                    socket.emit('draw:inprogress', { id: currentGUID, path: pathData });
+                }
+
+                tool.onMouseDown = onMouseDown;
+                tool.onMouseUp = onMouseUp;
+                tool.onMouseDrag = onMouseDrag;
+            }
+
+            socket.on('draw:start', function (data) {
+                if (data.id != currentGUID) {
+                    console.log(data);
+                    lines[data.id] = new Path();
+                    lines[data.id].strokeCap = 'round';
+                    lines[data.id].strokeColor =  data.path.strokeColor;
+                    lines[data.id].strokeWidth =  data.path.strokeWidth;
+                    var point = data.path.points[0];
+                    lines[data.id].add(new Point(point.x, point.y));
+                    view.draw();
+                }
+            });
+
+            socket.on('draw:inprogress', function (data) {
+                if (data.id != currentGUID) {
+                    var point = data.path.points.pop();
+                    lines[data.id].add(new Point(point.x, point.y));
+                    console.log(lines[data.id]);
+                    view.draw();
+                }
+            });
+
+            socket.on('draw:end', function (data) {
+                if (data.id != currentGUID) {
+                    delete lines[ data.id ];
+                    view.draw();
+                }
+            });
+
+            socket.on('draw:clean', function (data) {
+               paper.setup('myCanvas');
+            });
+        </script>
+    </head>
+    <body>
+        <a href='#' onclick='clearCanvas()'>Clean</a>
+        <canvas id="myCanvas" resize></canvas>
+    </body>
+</html>
